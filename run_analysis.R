@@ -1,6 +1,11 @@
-## This script assumes that the source data file from https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip 
-## is downloaded and extracted into R's working directory. Additionally, the top level directory after extraction needs to be renamed to 
-## UCI_HAR_Dataset. The renaming removes white spaces in the directory name and replaces them with underscores.
+## This script assumes that the source data file from 
+## https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip 
+## is downloaded and extracted into R's working directory. 
+## Additionally, the top level directory after extraction needs to be renamed to UCI_HAR_Dataset. 
+## The renaming removes white spaces in the directory name and replaces them with underscores.
+
+## Load the dplyrt package. 
+require(dplyr)
 
 ## Extract variable names 
 varNames <- read.table("./UCI_HAR_Dataset/features.txt", sep = "")
@@ -22,18 +27,10 @@ subjectTrainData <- read.table("./UCI_HAR_Dataset/train/subject_train.txt", sep 
 labelsTrainData <- read.table("./UCI_HAR_Dataset/train/y_train.txt", sep = "", col.names = c("Activity"),
                               , colClasses = c("character"))
 
-## Convert data into tbl_df form as needed by the DPLYR package
-dfTestData <- tbl_df(testData)
-dfSubjectTestData <- tbl_df(subjectTestData)
-dfLabelsTestData <- tbl_df(labelsTestData)
-dfTrainData <- tbl_df(trainData)
-dfSubjectTrainData <- tbl_df(subjectTrainData)
-dfLabelsTrainData <- tbl_df(labelsTrainData)
-
 ## Combine subject, activity, and measuremetns into one data frame.
 ## TEST and TRAINING data are still separate
-testData <- bind_cols(dfSubjectTestData, dfLabelsTestData, dfTestData)
-trainData <- bind_cols(dfSubjectTrainData, dfLabelsTrainData, dfTrainData)
+testData <- bind_cols(subjectTestData, labelsTestData, testData)
+trainData <- bind_cols(subjectTrainData, labelsTrainData, trainData)
 
 ## Combine TESTING and TRAINING data
 allData <- bind_rows(testData, trainData)
@@ -57,9 +54,9 @@ groupedData <- group_by(revisedData, Activity, Subject)
 ## Apply mean() to each column. Summarize() takes care of performing the mean for the defined groups
 tidyData <- summarize_each(groupedData, funs(mean)) 
 ## Sort the results by subject, and then by activity
-arrange(tidyData, Subject, Activity)
+sortedData <- arrange(tidyData, Subject, Activity)
 
 ## Write the result into a file
-write.table(tidyData, file = "./UCI_HAR_Dataset/tidy_results.txt", row.names = FALSE)
+write.table(sortedData, file = "./UCI_HAR_Dataset/tidy_results.txt", row.names = FALSE)
 print("DONE")
 
