@@ -1,5 +1,5 @@
-##Getting and Cleaning Data Course
-#Course Project README file
+#Getting and Cleaning Data
+##Course Project README file
 
 1. Download the data set from [Data Source](https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip) and extract it into R's working directory
 2. Rename the top-level directory to replace space with underscore. The renamed directory should be called UCI_HAR_Dataset 

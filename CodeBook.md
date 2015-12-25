@@ -3,6 +3,7 @@
 
 ### Project Goal
 Create a tidy data set from the source data set that provides the average values of mean and standard deviation measurements per subject and activity. During processing ensure that variables and activities are appropriately named. Specifically, the steps as requested in the project were as follows:
+
 1. Merge the training and the test sets to create one data set.  
 2. Extract only the measurements on the mean and standard deviation for each measurement.   
 3. Use descriptive activity names to name the activities in the data set.  
@@ -10,8 +11,8 @@ Create a tidy data set from the source data set that provides the average values
 5. From the data set in step 4, creates a second, independent tidy data set with the average of each variable for each activity and each subject.  
 
 ### Source Data Set
-The source data used for this project was downloaded from [Soource Data](https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip).
-The data represents accelerometer measuremetns for a set of subject and 6 different activities performed by each subject. Addiitonal details on the experiements that were performed to obtain the data can be found [here](http://archive.ics.uci.edu/ml/datasets/Human+Activity+Recognition+Using+Smartphones) 
+The source data used for this project was downloaded from [Source Data](https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip).
+The data represents accelerometer measuremetns for a set of subject and 6 different activities performed by each subject. Addiitonal details on the experiements that were performed to obtain the data can be found [here](http://archive.ics.uci.edu/ml/datasets/Human+Activity+Recognition+Using+Smartphones).
 
 ### Source Data Processing
 The source data was downloaded from the above link and the contents of the zip file were extracted into R's working directory. The name of the top level directory in the zip file was renamed to replace spaces with underscores to avoid issues with file references. As a result, all data files could be found in R's working directory under the UCI_HAR_Dataset directory.
