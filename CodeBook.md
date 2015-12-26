@@ -35,6 +35,7 @@ The resulting date set contains the following variables:
 * 79 other variables from the initial data set that represent either mean or standard deviation cacluations on the initial measurements. The value in each of these columns represents the average of the measurement per activity and subject.
 
 The names of the variables are as follows:
+
  [1] "Activity"                       
  [2] "Subject"                        
  [3] "tBodyAcc-mean()-X"              
