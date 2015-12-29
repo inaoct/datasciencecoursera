@@ -1,10 +1,17 @@
+## FROM WORK - Make sure to run Sys.setenv(http_proxy= "http://proxy.inbcu.com/:8080") first
+library(dplyr)
+
 ## Processing miletones and features from Rally to a form suitable for display in Tableau
 ## Milestone data needs to be stored in CSV file (excel file presents difficulties with dates)
 milestoneData <- read.table("./data/milestones.csv", sep = ",", header = TRUE, comment.char = "")
-milestoneData <- mutate(milestoneData, correctDate = as.Date(as.character(Target.Date), "%m/%d/%y"))
+#extract milestones status from milestone Notes
+extractStatus <- function(x) {ifelse(grepl("Status", x),  sub("\\].*", "", sub(".*\\[", "", x)), "On Track")}
+milestoneData <- mutate(milestoneData, correctDate = as.Date(as.character(Target.Date), "%m/%d/%y"),
+                        MilestoneStatus = sapply(Notes, extractStatus))
 
 ## Read in milestones from Excel - DON'T use this approach - messes up dates
 #milestoneData <- read.xlsx2("./data/milestones.xlsx", sheetIndex = 1, header = TRUE)
+
 
 ## Read in features
 library(xlsx)
@@ -27,6 +34,9 @@ initiativeNames <- strsplit(as.character(denormFeatureData$Parent), ": ")
 denormFeatureData <- mutate(denormFeatureData, 
                             milestoneID = sapply(milestoneIDs, firstElement),
                             Parent = sapply(initiativeNames, secondElement)) 
+
+
+
 ## Merge the feature and milestone data frames. We need to get all features independent on whether or not they have milestones
 ## Merge by milestone ID
 mergedData <- merge(denormFeatureData, milestoneData, by.x = "milestoneID", by.y = "Formatted.ID", all.x = TRUE )
@@ -34,9 +44,12 @@ mergedData <- rename(mergedData, FeatureID = Formatted.ID, MilestoneID = milesto
                      FeatureName = Name.x, MilestoneName = Name.y, MilestoneDate = correctDate, 
                      MilestoneColor = Display.Color,
                      BusinessArea = Parent)
-plotData <- select(mergedData, MilestoneID, MilestoneName, FeatureID, FeatureName, BusinessArea, MilestoneColor, MilestoneDate, State, Tags)
+plotData <- select(mergedData, MilestoneID, MilestoneName, FeatureID, FeatureName, BusinessArea, MilestoneColor, MilestoneDate, 
+                   State, Tags, Notes, MilestoneStatus)
 ## TODO - is there a better way to do a switch-like operation?
-adjustedPlotData <- mutate(plotData, Status = Tags, 
+adjustedPlotData <- mutate(plotData, FeatureStatus = Tags, 
+                          # MilestoneStatus = ifelse(grep("Status", Notes) == 0, "On Track", sub("\\].*", "", sub(".*\\[", "", Notes))),
+                         # MilestoneStatus = sub("\\].*", "", sub(".*\\[", "", Notes)),
                   # MilestoneDate = ifelse(is.na(MilestoneDate), as.Date(mdy("4/1/2016")), as.Date(MilestoneDate)),
                   # MilestoneName = ifelse(is.na(MilestoneName), "TBD", as.character(MilestoneName)),
                    MilestoneType = ifelse(is.na(MilestoneColor), "TBD",
