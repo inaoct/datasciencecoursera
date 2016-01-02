@@ -1,63 +1,61 @@
-## FROM WORK - Make sure to run Sys.setenv(http_proxy= "http://proxy.inbcu.com/:8080") first
-library(dplyr)
+################  Script Purpose ########################
+# Uses milestones.csv and features.csv to process data for Tableau vizualization.
+# milestones.csv is extarcted out or Rally: Plan -> Timeboxes
+# features.csv is extracted from Rally's Portfolio -> Portfolio Items
 
-## Processing miletones and features from Rally to a form suitable for display in Tableau
-## Milestone data needs to be stored in CSV file (excel file presents difficulties with dates)
+## WHEN RUNNING FROM WORK with proxy 
+#  Make sure to run Sys.setenv(http_proxy= "http://proxy.inbcu.com/:8080") 
+#  Must be run FIRST - at start of session. Otherwise it does not take.
+library(dplyr) # used for easier data frame manipulation
+library(splitstackshape) # used to split multiple values in a cell into separate rows
+
+
+## Process milestones
+#  Milestone data needs to be stored in CSV file (excel file presents difficulties with dates)
 milestoneData <- read.table("./data/milestones.csv", sep = ",", header = TRUE, comment.char = "")
+milestoneData <- rename(milestoneData, MilestoneID = Formatted.ID, 
+                        MilestoneName = Name, MilestoneColor = Display.Color)
 #extract milestones status from milestone Notes
 extractStatus <- function(x) {ifelse(grepl("Status", x),  sub("\\].*", "", sub(".*\\[", "", x)), "On Track")}
-milestoneData <- mutate(milestoneData, correctDate = as.Date(as.character(Target.Date), "%m/%d/%y"),
-                        MilestoneStatus = sapply(Notes, extractStatus))
+Sys.setlocale('LC_ALL', 'C') #handle warning messages input string 1 is invalid in this locale
+milestoneData <- mutate(milestoneData, MilestoneDate = as.Date(as.character(Target.Date), "%m/%d/%y"),
+                        MilestoneStatus = sapply(Notes, extractStatus),
+                        MilestoneType = ifelse(is.na(MilestoneColor), "TBD",
+                                               ifelse(MilestoneColor == "#ee6c19", "Client Deliverable", 
+                                                      ifelse(MilestoneColor == "#df1a7b", "External Dependency", "NA"))))
 
-## Read in milestones from Excel - DON'T use this approach - messes up dates
-#milestoneData <- read.xlsx2("./data/milestones.xlsx", sheetIndex = 1, header = TRUE)
+## Process features
+#  Note that using quote = "\"" is important here so that we could read in correctly any records that have commas in their values
+featureData <- read.table("./data/features.csv", sep = ",", header = TRUE, comment.char = "", quote = "\"", fill = FALSE)
+featureData <- rename(featureData, FeatureID = Formatted.ID, FeatureName = Name, BusinessArea = Parent, 
+                      FeatureState = State, FeatureStatus = Tags)
 
 
-## Read in features
-library(xlsx)
-featureData <- read.xlsx("./data/features.xlsx", sheetIndex = 1, header = TRUE)
-
-##something is not correct here ************* Doesn't get all rows
-#featureData <- read.table("./data/features.csv", sep = ",", header = TRUE, comment.char = "", quote = "", fill = TRUE)
-
-## process feature milestones - multiple milestones are stored in the same cell, separated bu ";".
-## need to extract each milestone in its own line
-library(splitstackshape)
+## Process feature milestones - multiple milestones are stored in the same cell, separated bu ";".
+#  Need to extract each milestone into its own line
 denormFeatureData <- cSplit(featureData, "Milestones", sep = ";", direction = "long")
-
 #extract milestone IDs
 firstElement <- function(x){x[1]}
 milestoneIDs <- strsplit(as.character(denormFeatureData$Milestones), ":")
 #extract initiative names (w/o their IDs)
 secondElement <- function(x){x[2]}
-initiativeNames <- strsplit(as.character(denormFeatureData$Parent), ": ")
+initiativeNames <- strsplit(as.character(denormFeatureData$BusinessArea), ": ")
 denormFeatureData <- mutate(denormFeatureData, 
-                            milestoneID = sapply(milestoneIDs, firstElement),
-                            Parent = sapply(initiativeNames, secondElement)) 
+                            MilestoneID = sapply(milestoneIDs, firstElement),
+                            BusinessArea = sapply(initiativeNames, secondElement), 
+                            FeatureState = ifelse(FeatureState == "", "Not Started",
+                                           ifelse(FeatureState == "Discovering" , "In Tech Discovery",
+                                                  ifelse(FeatureState == "Developing", "In Development", 
+                                                         ifelse(FeatureState == "Done", "Complete", "NA" )))))
+
+## Merge the feature and milestone data frames. We need to get all features independent of whether or not they have milestones.
+#  Merge by milestone ID
+mergedData <- merge(denormFeatureData, milestoneData, by.x = "MilestoneID", by.y = "MilestoneID", all.x = TRUE )
+plotData <- select(mergedData, MilestoneID, MilestoneName, FeatureID, FeatureName, BusinessArea, MilestoneType, MilestoneDate, 
+                   FeatureState, FeatureStatus, MilestoneStatus)
+
+## write the resulting data to an excel file. This will be used for visualization in Tableau.
+write.xlsx(plotData, file = "./data/features_end_milestones.xlsx", row.names = FALSE, showNA = FALSE)
 
 
-
-## Merge the feature and milestone data frames. We need to get all features independent on whether or not they have milestones
-## Merge by milestone ID
-mergedData <- merge(denormFeatureData, milestoneData, by.x = "milestoneID", by.y = "Formatted.ID", all.x = TRUE )
-mergedData <- rename(mergedData, FeatureID = Formatted.ID, MilestoneID = milestoneID, 
-                     FeatureName = Name.x, MilestoneName = Name.y, MilestoneDate = correctDate, 
-                     MilestoneColor = Display.Color,
-                     BusinessArea = Parent)
-plotData <- select(mergedData, MilestoneID, MilestoneName, FeatureID, FeatureName, BusinessArea, MilestoneColor, MilestoneDate, 
-                   State, Tags, Notes, MilestoneStatus)
-## TODO - is there a better way to do a switch-like operation?
-adjustedPlotData <- mutate(plotData, FeatureStatus = Tags, 
-                          # MilestoneStatus = ifelse(grep("Status", Notes) == 0, "On Track", sub("\\].*", "", sub(".*\\[", "", Notes))),
-                         # MilestoneStatus = sub("\\].*", "", sub(".*\\[", "", Notes)),
-                  # MilestoneDate = ifelse(is.na(MilestoneDate), as.Date(mdy("4/1/2016")), as.Date(MilestoneDate)),
-                  # MilestoneName = ifelse(is.na(MilestoneName), "TBD", as.character(MilestoneName)),
-                   MilestoneType = ifelse(is.na(MilestoneColor), "TBD",
-                                                                      ifelse(MilestoneColor == "#ee6c19", "Client Deliverable", 
-                                                                      ifelse(MilestoneColor == "#df1a7b", "External Dependency", "NA"))),
-                   State = ifelse(is.na(State), "Not Started",
-                                  ifelse(State == "Discovering" , "In Tech Discovery",
-                                  ifelse(State == "Developing", "In Development", 
-                                  ifelse(State == "Done", "Complete", "NA" )))))
-write.xlsx(adjustedPlotData, file = "./data/rally1.xlsx", row.names = FALSE, showNA = FALSE)
 
