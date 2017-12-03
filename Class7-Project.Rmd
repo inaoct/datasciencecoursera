@@ -1,0 +1,371 @@
+---
+title: "Impact of Transmission Type on Car Mileage"
+author: "Hristina G, November 2017"
+output:
+  pdf_document: default
+  html_document:
+    keep_md: yes
+---
+
+```{r echo = FALSE, message = FALSE, warning = FALSE}
+## Handle library pre-requisites
+# Using dplyr for its more intuitive data frame processing
+if(!require(dplyr)) install.packages("dplyr", repos = "http://cran.us.r-project.org")
+library(dplyr)
+# Using ggplot2 for diagrams
+if(!require(ggplot2)) install.packages("ggplot2", repos = "http://cran.us.r-project.org")
+library(ggplot2)
+# Using GGally for multipolt handling
+if(!require(GGally)) install.packages("GGally", repos = "http://cran.us.r-project.org")
+library(GGally)
+
+## Add function to handle multi-panel plots without facets
+## Used this from http://www.cookbook-r.com/Graphs/Multiple_graphs_on_one_page_(ggplot2)/
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+
+```
+
+## Executive Summary
+This report is focused on analyzing data from the MTCARS dataset to review the effect of various factors on fuel efficiency. 
+The impact of car transmission type is specifically investigated to determine how fuel efficiency may differ between cars with automatic vs manual transmission. 
+
+
+
+## Exploratory Data Analysys
+Initial review of the mtcars data indicates that the MPG (miles per gallon) as an indicator of fuel efficiency is represented in the data set together with several continuous and factor variables. Larger values of MPG indicate better fuel efficiency as they indicate that a larger distance can be traveled with the same amount of fuel.
+
+In the following table the data has been transformed to ensure that factor variables are represented as characters/factors: 
+
+```{r echo = FALSE}
+mtcars2 <- mutate(mtcars, transm = ifelse(am == 1, "manual", "auto" ), 
+                  cylF = as.character(cyl),
+                  engine = ifelse(vs == 0, "V", "S"),
+                  carbF = as.character(carb),
+                  gearF = as.character(gear))
+mtcarsRev <- mtcars2[, c("wt", "hp", "drat", "disp", "qsec", "mpg", 
+                         "transm", "cylF", "engine", "carbF", "gearF")]
+head(mtcarsRev, 5)
+
+```
+
+Figure 1 in the Appendix represent the behavior of MPG with respect to continuous variables, and Figure 2 represents the behavior of MPG with respect to factor variables. Correlation coefficients of the continuous variables are also presented and are broken down by manual vs automatic transmission.
+
+At a glance, both Figure 1 and Figure 2 qualitatively illustrate that fuel efficiency, as represented by MPG, is dependent on both continuous and factor variables, and those dependencies are different based on car transmission type. The following sections quantify these dependencies.
+
+## Model Selection
+The diagrams in the Appendix indicate that modeling the behavior of MPG would need to take into account car transmission type. We first begin by investigating the relationship of MPG to car weight as intuitively weight is a likely predictor of fuel efficiency. We compare models that take into account transmission type via either sub-setting the data by transmission type or by using the full data set and looking at the interaction between weight and transmission type.
+
+```{r echo = FALSE}
+
+mtcars2 <- mutate(mtcars, transm = ifelse(am == 1, "manual", "auto" ), 
+                  cylF = as.character(cyl),
+                  engine = ifelse(vs == 0, "V", "S"),
+                  carbF = as.character(carb),
+                  gearF = as.character(gear))
+mtcarsRev <- mtcars2[, c("wt", "hp", "drat", "disp", "qsec", "mpg", 
+                         "transm", "cylF", "engine", "carbF", "gearF")]
+
+# Data preparation - subset auto and manual data points
+mtcarsAuto <- filter(mtcarsRev, transm == "auto")
+mtcarsAuto <- mtcarsAuto[,-7]
+mtcarsMan <- filter(mtcarsRev, transm == "manual")
+mtcarsMan <- mtcarsMan[,-7]
+```
+
+### 1. One predictor (weight) with and without subsetting of the data on transmission type
+Let's first analyze the dependency of MPG on car weight, creating the following models:
+
+* MPG with respect to weight looking at both auto and manual transmission data points
+* MPG with respect to weight looking at auto and manual transmission separately
+
+```{r echo = FALSE, fig.height = 6, fig.width = 14}
+
+fitBoth <- lm(mpg~wt, mtcarsRev)
+fitA <-lm(mpg~wt, mtcarsAuto)
+fitM <- lm(mpg~wt, mtcarsMan)
+
+
+p <- ggplot(mtcarsRev, aes(y=mpg, x=wt, color=as.factor(transm))) + geom_point(size = 3, alpha = 0.6)
+p <- p + scale_color_manual(breaks = c("auto", "manual"), values=c("red", "blue"))
+p <- p + geom_abline(intercept = fitBoth$coefficients[1], slope = fitBoth$coefficients[2], size = 1, color = "purple")
+p <- p + ggtitle("mpg ~ wt, All Data Points")
+
+
+p1 <- ggplot(mtcarsRev, aes(y=mpg, x=wt, color=as.factor(transm))) + geom_point(size = 3, alpha = 0.6)
+p1 <- p1 + scale_color_manual(breaks = c("auto", "manual"), values=c("red", "blue"))
+p1 <- p1 + geom_abline(intercept = fitA$coefficients[1], slope = fitA$coefficients[2], size = 1, color = "red")
+p1 <- p1 + geom_abline(intercept = fitM$coefficients[1], slope = fitM$coefficients[2], size = 1, color = "blue")
+p1 <- p1 + ggtitle("mpg ~ wt, Data Subset for Auto and Manual")
+multiplot(p, p1, cols = 2)
+ 
+```
+
+The following table represents the main characteristics of the above regression models:
+
+```{r echo = FALSE, fig.height = 6, fig.width = 14}
+
+result <- data.frame("Model" = c("mpg~wt, all data","mpg~wt, only auto", "mpg~wt, only manual"), 
+    "Intercept" = c(round(fitBoth$coefficients[1],2),  round(fitA$coefficients[1],2), round(fitM$coefficients[1],2)),
+    "Slope" = c(round(fitBoth$coefficients[2],2), round(fitA$coefficients[2],2), round(fitM$coefficients[2],2) ),
+    "R^2" = c(round(summary(fitBoth)$r.squared,2), round(summary(fitA)$r.squared,2),round(summary(fitM)$r.squared,2) ),
+    "Std.Err" = c(round(summary(fitBoth)$sigma,2), round(summary(fitA)$sigma,2),round(summary(fitM)$sigma,2) ),
+     "P-Val" = c(anova(fitBoth)$'Pr(>F)'[1], anova(fitA)$'Pr(>F)'[1],anova(fitM)$'Pr(>F)'[1]))
+result
+
+```
+
+### 2. Two predictors (weight + transmission type) on the full data set
+
+Now let's consider the case of a linear model with two predictors, weight and transmission type, in the following cases:
+
+* MPG with respect to weight and transmission looking at both auto and manual transmission data points
+
+* MPG with respect to weight, looking at both auto and manual transmission data points but taking into account the possible interaction between weight and transmission
+
+```{r echo = FALSE, fig.height = 6, fig.width = 14}
+
+fitBothNoInt <- lm(mpg~wt+transm, mtcarsRev)
+fitBothInt <- lm(mpg~wt+wt*transm, mtcarsRev)
+
+interceptNoIntAuto <- round(fitBothNoInt$coefficients[1],2)
+slopeNoIntAuto <- round(fitBothNoInt$coefficients[2],2)
+interceptNoIntMan <- round(fitBothNoInt$coefficients[1] + fitBothNoInt$coefficients[3],2)
+slopeNoIntMan <- round(fitBothNoInt$coefficients[2],2)
+
+pNoInt <- ggplot(mtcarsRev, aes(y=mpg, x=wt, color=as.factor(transm))) + geom_point(size = 3, alpha = 0.6)
+pNoInt <- pNoInt + scale_color_manual(breaks = c("auto", "manual"), values=c("red", "blue"))
+pNoInt <- pNoInt + geom_abline(intercept = fitBothNoInt$coefficients[1], slope = fitBothNoInt$coefficients[2], size = 1, color = "red")
+pNoInt <- pNoInt + geom_abline(intercept = (fitBothNoInt$coefficients[1] + fitBothNoInt$coefficients[3]), 
+    slope = fitBothNoInt$coefficients[2], size = 1, color = "purple")
+pNoInt <- pNoInt + ggtitle("mpg ~ wt + transm")
+
+interceptIntAuto <- round(fitBothInt$coefficients[1],2)
+slopeIntAuto <- round(fitBothInt$coefficients[2],2)
+interceptIntMan <- round(fitBothInt$coefficients[1] + fitBothInt$coefficients[3],2)
+slopeIntMan <- round(fitBothInt$coefficients[2] + fitBothInt$coefficients[4],2)
+
+pInt <-  ggplot(mtcarsRev, aes(y=mpg, x=wt, color=as.factor(transm))) + geom_point(size = 3, alpha = 0.6)
+pInt <- pInt + scale_color_manual(breaks = c("auto", "manual"), values=c("red", "blue"))
+pInt <- pInt + geom_abline(intercept = fitBothInt$coefficients[1], slope = fitBothInt$coefficients[2], size = 1, color = "red")
+pInt <- pInt + geom_abline(intercept = (fitBothInt$coefficients[1] + fitBothInt$coefficients[3]), 
+    slope = (fitBothInt$coefficients[2] + fitBothInt$coefficients[4]), size = 1, color = "blue")
+pInt <- pInt + ggtitle("mpg ~ wt + wt*transm")
+
+multiplot(pNoInt, pInt, cols = 2)
+
+```
+
+The following table represents the main characteristics of the above regression models:
+    
+```{r echo = FALSE, fig.height = 6, fig.width = 14}
+
+result1 <- data.frame("Model" = c("mpg~wt+transm, auto","mpg~wt+transm, manual", "mpg~wt+wt*transm, auto","mpg~wt+wt*transm, manual" ), 
+    "Intercept" = c(interceptNoIntAuto,  interceptNoIntMan, interceptIntAuto, interceptIntMan),
+    "Slope" = c(slopeNoIntAuto, slopeNoIntMan, slopeIntAuto, slopeIntMan ),
+    "R^2" = c(round(summary(fitBothNoInt)$r.squared,2), round(summary(fitBothNoInt)$r.squared,2),
+        round(summary(fitBothInt)$r.squared,2),  round(summary(fitBothInt)$r.squared,2) ),
+    "Std.Err" =  c(round(summary(fitBothNoInt)$sigma,2), round(summary(fitBothNoInt)$sigma,2),
+        round(summary(fitBothInt)$sigma,2),  round(summary(fitBothInt)$sigma,2) ),
+    "P-Val" = c(anova(fitBothNoInt)$'Pr(>F)'[1], anova(fitBothNoInt)$'Pr(>F)'[1],
+        anova(fitBothInt)$'Pr(>F)'[1],  anova(fitBothInt)$'Pr(>F)'[1]))
+
+
+
+result1
+
+```
+
+From the one-dimensional and two-dimensional models so far we can conclude the following:
+
+ * The one-predictor model with all data points appear to be equivalent in slope and intercept to the two predictor model with no interaction between wt and transm
+ 
+ * The one-predictor models where the data for auto and manual transmissions was subset appear to be equivalent in intercepts and slopes to the two-predictor model where  all data was used and interaction between wt and transm type was considered
+ 
+ * It appears that the best model so far (considering the values for R^2, Standard Error, and p-value) is the one that looks at all data points and considers the interaction between weight and transmission type:  (mpg ~ wt + wt * transm). 
+ 
+#### Diagnostics of Initial Model
+ 
+The following model diagnostics of our best model so far are represented by the following figures: 
+ 
+```{r echo = FALSE, fig.height = 11, fig.width = 14}
+
+#summary(fitBothInt)
+
+par(mfrow = c(2,2))
+plot(fitBothInt)
+
+
+```
+
+The first plot (residuals vs. fitted values) is more or less random as desired but there seem to be some outliers (8, 18, and 20 ) which may be skewing the results. Similarly, the third plot (Scale-Location) should look random but there again appears to be some influence of data points 8, 18 and 20.
+
+The second plot (normal Q-Q) is a normal probability plot.  It will give a straight line if the errors are distributed normally, but points 8, 18, and 20 result in a deviation from the straight line.
+
+The last plot (Cook’s distance) tells us which points have the greatest influence on the regression (leverage points). We see that points 17, 18 and 20 have  influence on the model.
+
+Nevertheless, the model has an R^2 value of 83% and is therefore a good representation of the observed data since 83% of the results can be explained by the model.
+
+#### Interpretation of Results
+
+In summary, we can conclude the following so far about fuel efficiency:
+
+* The fuel efficiency for both automatic and manual transmission cars is decreased as the weight of the car is increased
+
+* At lower weights cars with manual transmission have a better fuel efficiency that cars with automatic transmission
+
+* At a weight larger than about 2800 Lb, automatic cars begin to have better fuel efficiency than manual cars
+
+* The fuel efficiency of automatic cars is decreased more slowly with weight than that of manual transmission cars
+
+
+### 3. Effect of selecting additional predictors
+
+The diagnostics of our best model so far indicated that there may be possibilities for improvement to that model. As a next step, let's consider whether the best model so far can be improved upon by adding other predictors. We do this by adding predictors in a step-wise fashion.
+
+#### Step assessment
+```{r echo = FALSE}
+
+ 
+fit1 <- lm(mpg ~ wt, data = mtcarsRev)
+fit2 <- lm(mpg ~ wt+transm, data = mtcarsRev)
+fit3 <- lm(mpg ~ wt+transm+qsec, data = mtcarsRev)
+fit4 <- lm(mpg ~ wt+transm+qsec+hp, data = mtcarsRev)
+fit5 <- lm(mpg ~ wt+transm+qsec+hp+drat, data = mtcarsRev)
+fit6 <- lm(mpg ~ wt+transm+qsec+hp+drat+cylF, data = mtcarsRev)
+fit7 <- lm(mpg ~ wt+transm+qsec+hp+drat+cylF+engine, data = mtcarsRev)
+fit8 <- lm(mpg ~ wt+transm+qsec+hp+drat+cylF+engine+carbF, data = mtcarsRev)
+fit9 <- lm(mpg ~ wt+transm+qsec+hp+drat+cylF+engine+carbF+gearF, data = mtcarsRev)
+anova(fit1, fit2, fit3, fit4, fit5, fit6, fit7, fit8, fit9)
+
+```
+
+These results indicate that qsec (the number of seconds it takes for a car to reach a distance of 1/4 mile) may be a significant predictor. 
+
+We now look at several models that add qsec to the model together with wt and transmission. We compare the following 5 models:
+
+```{r echo = FALSE}
+
+#Comparing best candidates
+fitFinal <- fitBothInt
+fitFinal0 <- lm(mpg ~ wt + qsec + transm, mtcarsRev)
+fitFinal1 <- lm(mpg ~ wt + qsec + wt*transm, mtcarsRev) ##best
+fitFinal2 <- lm(mpg ~ wt + qsec + wt*transm + qsec*transm, mtcarsRev)
+fitFinal3 <- lm(mpg ~ wt + qsec + wt*transm + qsec*transm + wt*qsec, mtcarsRev)
+anova(fitFinal,fitFinal0, fitFinal1, fitFinal2, fitFinal3)
+```
+
+It appears that the following model: mpg ~ wt + qsec + wt \* transm
+would represent the best fit when qsec is considered. The model also is an improvement over our initial 
+mpg ~ wt + wt \* transm model we previously reviewed. 
+
+Here is a graphical representation of how the model modifies the previously modeled behavior when the qsec is fixed at mean(qsec): 
+
+```{r echo = FALSE, fig.height = 6, fig.width = 14}
+#fit with respect to wt, accouting for qsec and transmission type
+#
+qsecVal <- mean(mtcarsRev$qsec)
+p <- ggplot(mtcarsRev, aes(y=mpg, x=wt, color=as.factor(transm))) + geom_point(size = 3, alpha = 0.6)
+p <- p + scale_color_manual(breaks = c("auto", "manual"), values=c("red", "blue"))
+## auto
+p1 <- p + geom_abline(intercept = (fitFinal1$coefficients[1] + qsecVal*fitFinal1$coefficients[3]), 
+    slope = fitFinal1$coefficients[2], size = 1, color = "pink")
+# Compare with model with no qsec
+# auto
+p1 <- p1 + geom_abline(intercept = fitBothInt$coefficients[1], slope = fitBothInt$coefficients[2], size = 1, color = "red")
+p1 <- p1 + ggtitle("Auto: mpg~wt+wt*trans (red line) vs mpg~wt+qsec+wt*transm (pink line)")
+
+# manual
+p2 <- p + geom_abline(intercept = (fitFinal1$coefficients[1]+ qsecVal*fitFinal1$coefficients[3] + fitFinal1$coefficients[4]), 
+    slope = (fitFinal1$coefficients[2] + fitFinal1$coefficients[5]), size = 1, color = "light blue")
+#Compare with model with no qsec
+#manual
+p2 <- p2 + geom_abline(intercept = (fitBothInt$coefficients[1] + fitBothInt$coefficients[3]), 
+    slope = (fitBothInt$coefficients[2] + fitBothInt$coefficients[4]), size = 1, color = "blue")
+p2 <- p2 + ggtitle("Manual: mpg~wt+wt*trans (blue line) vs mpg~wt+qsec+wt*transm (light blue line)")
+
+multiplot(p1, p2, cols = 2)
+```
+
+#### Interpretation of Results
+The results indicate that the addition of qsec as a predictor does not affect the downward fuel efficiency trend as weight is increased. However, the rate at which fuel efficiency is reduced is somewhat smaller (at least at the mean value of qsec)
+
+#### Diagnostics of Improved Model
+Finally, here are the details, together with diagnostics of this improved model.
+We can see that the effect of the previously identified outliers has been reduced. 
+```{r echo = FALSE, fig.height = 11, fig.width = 14}
+
+#summary(fitFinal1)
+
+par(mfrow = c(2,2))
+plot(fitFinal1)
+ 
+```
+
+### Conclusions
+The results presented in the previous sections illustrate that fuel efficiency (as measured by MPG) is most significantly dependent on car 
+weight and time of acceleration (as measured by seconds to complete a 1/4 mile). 
+
+For both manual and automatic cars fuel efficiency decreases as car weight increases but this effect is more pronounced for manual cars.
+Furthermore, qsec can influence this behavior by somewhat reducing the rate of fuel efficiency decrease. 
+
+If one's primary concern is car fuel efficiency, then manual cars should be preferred for smaller weights (up to ~2800Lb) and automatic cars are a better choice at weights higher that ~2800 Lb.
+
+
+## Appendix
+```{r echo = FALSE, message = FALSE, warning = FALSE, fig.height = 11, fig.width = 14}
+
+mpgContinuous <- mtcars2[, c("wt", "hp", "drat", "disp", "qsec", "mpg", "transm")]
+mpgFactors <- mtcars2[, c("mpg", "cylF", "engine", "carbF", "gearF", "transm")]
+
+#Figure 1
+ggpairs(mpgContinuous, columns = 1:6,  ggplot2::aes(colour=transm), diag = "blank", title = "Figure 1: Data Exploration - Continuous Variables")
+
+#Figure 2
+ggpairs(mpgFactors, columns = 1:5,  ggplot2::aes(colour=transm), diag = "blank", title = "Figure 2: Data Exploration - Factor Variables")
+```
+
+
+
+
+
+
+
+
+
+
+
+
