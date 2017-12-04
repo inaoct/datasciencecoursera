@@ -1,0 +1,296 @@
+---
+title: "Prediction of Exercise Quality from Personal Activity Measurements"
+author: "Hristina G"
+date: December 3, 2017
+output: 
+    html_document:
+        number_sections: false
+        toc: true
+        fig_width: 7
+        fig_height: 5.5
+       # theme: readable
+        highlight: tango
+---
+
+```{r echo = FALSE, message = FALSE, warning = FALSE}
+## Handle library pre-requisites
+# Using dplyr for its more intuitive data frame processing
+if(!require(dplyr)) install.packages("dplyr", repos = "http://cran.us.r-project.org")
+library(dplyr)
+# Using reshape for data frame transforms (melt)
+if(!require(reshape)) install.packages("reshape", repos = "http://cran.us.r-project.org")
+library(reshape)
+# Using ggplot2 for diagrams
+if(!require(ggplot2)) install.packages("ggplot2", repos = "http://cran.us.r-project.org")
+library(ggplot2)
+# Using caret for statistical modeling
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+library(caret)
+# Using random forest for statistical modeling
+if(!require(randomForest)) install.packages("randomForest", repos = "http://cran.us.r-project.org")
+library(randomForest)
+```
+
+## Introduction
+
+In recent years there has been a proliferation of electronic devices (FitBit, Nike FuelBand, Jawbone Up, etc) that allow individuals to gather quantitative information about their level of physical activity. While the apps associated with these devices allow consumers to better understand how much of an activity they are doing, information on how well they are performing the physical activity is not readily available.
+
+To gather further insights into how the quality of a particular activity could be evaluated, researches from several European universities [^1] conducted controlled experiments on correct and incorrect ways to perform weight lifting exercises and recorded the accelerometer data gathered from the subjects performing these exercises. 
+
+In this project we utilize the data set created as part of this research effort to create a model that could predict  how well a weight-lifting exercise is being performed based on accelerometer measurements. The quality of the exercise is captured by the classification variable **classe**, with A indicating a correct execution of the weight-lifting activity, and B, C, D, and E indicating different variations of incorrect exercise execution.
+
+The complete training data set utilized to create the model can be found at: <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>
+
+
+
+## Data Exploration and Feature Selection
+As a first step, let's load the training data set, set aside a subset of it for model testing purposes,  and review the contents of the new training set.
+
+```{r echo = TRUE, cache = TRUE, message = FALSE, warning = FALSE}
+# Load complete data set
+trainingDataURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+trainingFile <- paste("./data/training", ".csv", sep = "")
+download.file(trainingDataURL, destfile = "./data/training.csv", method = "curl")
+trainingData <- read.table(
+    trainingFile, sep = ",", header = TRUE, comment.char = "", quote = "\"")
+
+#Set seed to be able to create reproducible results
+set.seed(3365)
+
+# Split the training data into traiing and testing sets
+inTrain = createDataPartition(trainingData$classe, p=0.7)[[1]]
+training = trainingData[inTrain,]
+testing = trainingData[-inTrain,]
+```
+
+The training data set contains `r length(training)` columns. Taking into account that one of these columns is the outcome variable classe, this leaves us with 159 potential predictors. Let's see if we can reduce the number of these predictors. 
+
+### Sparsely Populated Predictors
+
+A closer look at the data (via either `head(training)` or `summary(training)` indicates that a number of columns seem to have significant amounts of NA data. 
+
+An example of one such column is `var_roll_belt`. 
+```{r echo = TRUE, cache = TRUE, message = FALSE, warning = FALSE}
+countNonNa <- sum(!is.na(training$var_roll_belt))
+countAll <- nrow(training)
+percentNonNa <- round(100 * countNonNa/countAll, 1)
+```
+This column has only `r countNonNa` non-NA records, which represents about `r percentNonNa`% of the overall training data set. Other columns in the data set appear to have the same behavior. 
+Considering the amount of missing data, imputing missing values would not be reasonable. So as a next step, let's remove columns  that contain `r countNonNa` or fewer non-NA records,
+
+```{r echo = TRUE, message = FALSE, warning = FALSE}
+trainingNoNA <- training %>% select_if(~sum(!is.na(.)) > countNonNa) 
+```
+
+We now have `r length(trainingNoNA)` remaining variables, and discounting the outcome variable classe, we are down to `r length(trainingNoNA) - 1` possible predictors. 
+
+### Numeric Predictors Loaded as Factors 
+A further review of the data set reveals that there are a number of variables that appear to be numeric yet were loaded as factors. 
+
+```{r echo = TRUE, message = FALSE, warning = FALSE}
+factorCols <- lapply(Filter(is.factor,trainingNoNA), levels)
+countFactors <- length(factorCols)
+```
+
+We have total of `r countFactors` factor variables, some of which appear to have only 2-3 levels and some of the levels are empty strings. For example, let's take a closer look at one such factor variable - `kurtosis_yaw_belt`:
+
+```{r echo = TRUE, message = FALSE, warning = FALSE}
+table(trainingNoNA$kurtosis_yaw_belt)
+```
+Interestingly, the number of records different form an empty string is the same as the count we previously saw for the number of non-NA records for other variables. Even the non-empty values here ("#DIV/0!") are suspect but let's put this aside for a moment. 
+Let's remove factor columns whose records have `r countNonNa` or fewer non-empty records.
+
+```{r echo = TRUE, message = FALSE, warning = FALSE}
+trainingNoEmpty <- trainingNoNA %>% select_if(~sum(!(. == "")) > countNonNa)
+factorCols <- lapply(Filter(is.factor,trainingNoEmpty), levels)
+```
+We now have only `r length(factorCols)` factor variables remaining: 
+```{r echo = TRUE, message = FALSE, warning = FALSE}
+factorCols
+```
+
+Interestingly, most factor variables were eliminated when we accounted for the large number of empty records. As a result, there is no need to further analyze the strange non-empty values  ("#DIV/0!") that were seen for some of these variables.
+
+From the remaining factor variables, let's also remove user_name, cvtd_timestamp, and new_window. 
+Since the experiments were controlled across subjects and time of execution, it is unlikely that these factors have an impact on predicting the correctness of activity execution.
+
+```{r echo = TRUE, message = FALSE, warning = FALSE}
+trainingAdjusted <- trainingNoEmpty %>% dplyr::select(-user_name, -cvtd_timestamp, -new_window) 
+```
+
+After this manipulation, we are down to `r length(trainingAdjusted)-1` possible predictors.
+
+Following similar argument as above, we can also remove the additional timestamp and window variables, as well as the record number variable:
+```{r echo = TRUE, message = FALSE, warning = FALSE}
+trainingAdjusted2 <- trainingAdjusted %>% dplyr::select(-X, -raw_timestamp_part_1,
+    -raw_timestamp_part_2, -num_window) 
+```
+
+This leaves us with `r length(trainingAdjusted2)` variables: the outcome `classe` plus `r length(trainingAdjusted2) - 1` potential predictors.
+
+### Correlated Predictors
+Now let's see if some of the potential 52 predictors are highly correlated with each other. If they are, we can remove the correlated ones to further reduce the number of predictors and simplify the model
+
+
+```{r echo = TRUE, message = FALSE, warning = FALSE}
+# Remove the outcome var classe, leaving only numerical vars
+numericCols <- dplyr::select(trainingAdjusted2, -classe)
+correlationMatrix <- cor(numericCols)
+meltedCorrelationMatrix <- melt(correlationMatrix)
+correlationThreshold <- 0.7
+
+# Get correlated pairs with cor > correlationThreshold
+correlatedPairs <- filter(meltedCorrelationMatrix, value >= correlationThreshold & value != 1)
+distinctPairs <- distinct(correlatedPairs, value, .keep_all = TRUE)
+arrangedPairs <- arrange(distinctPairs, X1, X2)
+
+# Drop additional columns : All that are in X2 and are unique
+names <- as.character(arrangedPairs$X2)
+names <- unique(names)
+trainingAdjusted3 <- dplyr::select(trainingAdjusted2, -one_of(names))
+trainingFinal <- trainingAdjusted3
+```
+
+After removing correlated variables that have correlation to other vars of correlationThreshold = `r correlationThreshold` or above, we are left with `r length(trainingFinal) -1` final predictors. This is a significant reduction from the initial `r length(training) -1` potential predictors.
+
+## Model Selection
+To take advantage of the relatively large data set and to reduce the possibility of over-fitting, 10-fold cross validation was used in all prediction models.
+```{r echo = TRUE, message = FALSE, warning = FALSE}
+train_control <- trainControl(method="cv", number=10)
+```
+
+### Classification Tree 
+As a first step, Classification Tree (RPART) was used due to the relatively interpretability of results as well as its fast execution.
+
+```{r cache = TRUE, echo = TRUE, message = FALSE, warning = FALSE}
+start.time <- Sys.time()
+modelFitRpartCV10 <- train(classe~., data=trainingFinal, 
+    trControl=train_control, method="rpart")
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Caching was added to reduce the time for repeated knitter runs. 
+# No-cache execution timing was: ## Time difference of 7.028109 secs
+```
+
+The following figure represents the resulting classification tree.
+```{r echo = FALSE, message = FALSE, warning = FALSE}
+# plot the tree
+plot(modelFitRpartCV10$finalModel, main = "Classification Tree")
+text(modelFitRpartCV10$finalModel, use.n = FALSE, all = TRUE, cex = 0.9)
+#print(modelFitRpartCV10$finalModel)
+```
+
+Note that only a handful of the full set of predictors factored into the model.
+However, the in-sample accuracy is fairly low: 
+
+```{r echo = TRUE, message = FALSE, warning = FALSE}
+predictionRpartCV10In<- predict(modelFitRpartCV10, training)
+accuracyRPartIn <- confusionMatrix(predictionRpartCV10In, training$classe)$overall[["Accuracy"]]
+accuracyRPartIn
+```
+Nevertheless, the results of this simple classification tree can be used to restrict the number of predictors used in a more advanced model - Random Forest
+
+### Random Forest with Predictors Based on Classification Tree Results
+
+As a next step, let's use Random Forest using as predictors only the variables that appeared as significant in the classification tree.
+
+```{r cache = TRUE, echo = TRUE, message = FALSE, warning = FALSE}
+start.time <- Sys.time()
+modelFitRFLessVar <- train(classe~pitch_forearm + gyros_belt_z + roll_forearm + magnet_dumbbell_y, 
+      data=trainingFinal, trControl=train_control, method="rf")
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Caching was added to reduce the time for repeated knitter runs. 
+# No-cache execution timing was: ## Time difference of 2.979523 mins
+```
+
+
+The execution time  is now longer than the Classification Tree but still within minutes.
+However, the in-sample accuracy is significantly increased.
+
+```{r echo = TRUE, message = FALSE, warning = FALSE}
+predictionRFLessVarIn <- predict(modelFitRFLessVar , training)
+accuracyRFLessVarIn <- confusionMatrix(predictionRFLessVarIn, training$classe)$overall[["Accuracy"]]
+accuracyRFLessVarIn 
+```
+
+
+### Random Forest with All Final Predictors
+
+As a final step, let's now perform random forest using all final predictors.
+```{r cache = TRUE, echo = TRUE, message = FALSE, warning = FALSE}
+start.time <- Sys.time()
+modelFitRF35 <- train(classe~., 
+    data=trainingFinal, trControl=train_control, method="rf")
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Caching was added to reduce the time for repeated knitter runs. 
+# No-cache execution timing was:   ## Time difference of 14.57789 mins
+```
+
+The execution time now is much higher but the in-sample accuracy has increased to 1.
+
+```{r echo = TRUE, message = FALSE, warning = FALSE}
+predictionRF35In<- predict(modelFitRF35, training)
+accuracyRF35In <- confusionMatrix(predictionRF35In, training$classe)$overall[["Accuracy"]]
+accuracyRF35In
+```
+
+
+
+It is also interesting to see how the different predictors factored into the Random Forest model.
+The following plot illustrates the importance of each predictor. 
+
+```{r echo = TRUE, message = FALSE, warning = FALSE}
+
+importance    <- importance(modelFitRF35$finalModel)
+varImportance <- data.frame(Variables = row.names(importance), 
+                                 Importance = round(importance[ ,'MeanDecreaseGini'],2))
+rankImportance <- varImportance %>%
+       mutate(Rank = paste0('#',dense_rank(desc(Importance))))
+ 
+ggplot(rankImportance, aes(x = reorder(Variables, Importance), 
+             y = Importance, fill = Importance)) +
+    geom_bar(stat='identity') +
+    geom_text(aes(x = Variables, y = 0.5, label = Rank),
+             hjust=0, vjust=0.55, size = 4, colour = 'white') +
+    labs(x = 'Variables') +
+    coord_flip()
+
+```
+
+It is interesting that while some of the high-importance variables are the same as the variables that 
+were prominent in the classification tree, there are also some high-importance variables that did not get reflected in the classification tree. For example, `magnet_dumbbell_z` is of highest importance in Random Forest but did not factor in the classification tree. These discrepancies could be further analyzed and may lead to the discovery of other model options. 
+
+## In-Sample vs Out-of-Sample Accuracy
+Now that we have seen the in-sample accuracy of the 3 models, let's take a look at their out-of-sample accuracy by using the testing sample we initially set aside.
+
+```{r echo = TRUE, message = FALSE, warning = FALSE}
+predictionRpartCV10<- predict(modelFitRpartCV10, testing)
+accuracyRpartCV10Out <- confusionMatrix(predictionRpartCV10, testing$classe)$overall[["Accuracy"]]
+
+predictionRFLessVar <- predict(modelFitRFLessVar , testing)
+accuracyRFLessVarOut <- confusionMatrix(predictionRFLessVar, testing$classe)$overall[["Accuracy"]]
+
+predictionRF35<- predict(modelFitRF35, testing)
+accuracyRF35Out <- confusionMatrix(predictionRF35, testing$classe)$overall[["Accuracy"]]
+
+model <- c('Classification Tree', 'Random Forest 4 Vars', 'Random Forest All Vars')
+inSample <-c(accuracyRPartIn, accuracyRFLessVarIn, accuracyRF35In)
+outOfSample <- c(accuracyRpartCV10Out, accuracyRFLessVarOut, accuracyRF35Out)
+accuracies <- data.frame(model, inSample, outOfSample)
+knitr::kable(accuracies, caption = "In vs Out of Sample Accuracies")
+```
+
+As expected, the out-of-sample accuracy is lower than the in-sample accuracy for both Random Forest Models.
+The out-of-sample accuracy for the Classification Tree appears to be a bit higher with the testing sample used but this result is most likely due to random chance since both in and out of sample accuracies in this case are fairly low.
+
+
+[^1]: The complete paper can be found at <http://groupware.les.inf.puc-rio.br/public/papers/2013.Velloso.QAR-WLE.pdf>
+
